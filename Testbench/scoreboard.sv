@@ -2,6 +2,34 @@
     Maria Fernanda Retana
     Sebastian Rojas */
 
+// Transacción: una instrucción tipo R retirada
+// ============================================================
+class instr_txn; // taxonomia de instruccion
+    // Capturado en el ciclo de retiro (antes del writeback):
+    bit [31:0] pc;
+    bit [31:0] instr;
+    bit [31:0] rs1_val;
+    bit [31:0] rs2_val;
+
+    // Capturado un ciclo después del retiro (writeback visible):
+    bit [31:0] rd_val_actual;
+
+    // Campos decodificados (auxiliares)
+    bit [4:0]  rs1, rs2, rd;
+    bit [2:0]  funct3;
+    bit [6:0]  funct7, opcode;
+
+    function void decode();
+        opcode = instr[6:0];
+        rd     = instr[11:7];
+        funct3 = instr[14:12];
+        rs1    = instr[19:15];
+        rs2    = instr[24:20];
+        funct7 = instr[31:25];
+    endfunction
+endclass
+
+
 // ============================================================
 // Scoreboard
 // ============================================================
