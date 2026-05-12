@@ -4,7 +4,7 @@
 
 // Transacción: una instrucción tipo R retirada
 // ============================================================
-class instr_txn; // taxonomia de instruccion
+class instr_txn; // taxonomia de instruccion, como estan dividos los bits
     // Capturado en el ciclo de retiro (antes del writeback):
     bit [31:0] pc;
     bit [31:0] instr;
@@ -29,6 +29,29 @@ class instr_txn; // taxonomia de instruccion
     endfunction
 endclass
 
+// Modelo de referencia para instrucciones tipo R
+// ============================================================
+function automatic bit [31:0] predict_rtype(
+    input bit [31:0] a,
+    input bit [31:0] b,
+    input bit [2:0]  funct3,
+    input bit [6:0]  funct7
+);
+    bit [4:0] shamt = b[4:0];
+    case ({funct7, funct3})
+        10'b0000000_000: predict_rtype = a + b;                             // ADD
+        10'b0100000_000: predict_rtype = a - b;                             // SUB
+        10'b0000000_001: predict_rtype = a << shamt;                        // SLL
+        10'b0000000_010: predict_rtype = ($signed(a) < $signed(b)) ? 1 : 0; // SLT
+        10'b0000000_011: predict_rtype = (a < b) ? 1 : 0;                   // SLTU
+        10'b0000000_100: predict_rtype = a ^ b;                             // XOR
+        10'b0000000_101: predict_rtype = a >> shamt;                        // SRL
+        10'b0100000_101: predict_rtype = $signed(a) >>> shamt;              // SRA
+        10'b0000000_110: predict_rtype = a | b;                             // OR
+        10'b0000000_111: predict_rtype = a & b;                             // AND
+        default:         predict_rtype = 32'hDEAD_BEEF;                     // Tipo R ilegal
+    endcase
+endfunction
 
 // ============================================================
 // Scoreboard
