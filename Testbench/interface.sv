@@ -5,6 +5,8 @@
 interface core_if(input logic clk);
 
     logic reset_core;
+    logic mem_gen_done;
+    int unsigned program_words;
 
     // Registro x0.
     logic [31:0] x0;
