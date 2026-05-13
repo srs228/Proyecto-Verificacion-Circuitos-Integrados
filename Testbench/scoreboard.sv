@@ -164,4 +164,27 @@ class core_scoreboard;
             default:         return "ILLEGAL";
         endcase
     endfunction
+  
+  
+      // Función pública para que el checker pida el resultado esperado
+    function bit [31:0] get_expected_rtype(
+        input bit [31:0] rs1_val,
+        input bit [31:0] rs2_val,
+        input bit [2:0]  funct3,
+        input bit [6:0]  funct7
+    );
+        return predict_rtype(rs1_val, rs2_val, funct3, funct7);
+    endfunction
+
+
+    // Función pública para que el checker imprima el nombre de la instrucción
+    function string get_rtype_name(
+        input bit [2:0] funct3,
+        input bit [6:0] funct7
+    );
+        return rtype_name(funct3, funct7);
+    endfunction
+  
+  //-----------------------------------------------------------
+  
 endclass
