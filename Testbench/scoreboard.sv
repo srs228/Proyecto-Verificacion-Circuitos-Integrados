@@ -38,7 +38,7 @@ function automatic bit [31:0] predict_rtype(
     input bit [6:0]  funct7
 );
     bit [4:0] shamt = b[4:0];
-    case ({funct7, funct3})
+    case ({funct7, funct3})  // cambiar esas lineas de bits a parameters, para facilidad
         10'b0000000_000: predict_rtype = a + b;                             // ADD
         10'b0100000_000: predict_rtype = a - b;                             // SUB
         10'b0000000_001: predict_rtype = a << shamt;                        // SLL
