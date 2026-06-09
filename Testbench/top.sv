@@ -1,6 +1,6 @@
-/*  Fabiola Munoz
-    Maria Fernanda Retana
-    Sebastian Rojas */
+// Incluir macros e importar el paquete de UVM
+`include "uvm_macros.svh"
+import uvm_pkg::*;
 
 module top;
 
@@ -15,6 +15,10 @@ module top;
 
     // Interfaz compartida entre DUT, scoreboard y checker
     core_if core_vif(clk);
+
+    // Instanciar el módulo de aserciones
+    aserciones mis_aserciones_obj(.vif(core_vif));
+
 
     // 1. Clock
     initial begin
@@ -73,6 +77,19 @@ module top;
     assign core_vif.rmdata = dut.bridge0.core0.RMDATA;
 
 
-    testcase test(core_vif);
+    // 5. Bloque initial de configuración y arranque UVM
+    initial begin
+        $dumpfile("dump.vcd");
+        $dumpvars(0, top);
+
+        // a. Subimos la interfaz a la base de datos de UVM
+        // Esto reemplaza tener que pasar la interfaz como argumento a las clases
+        uvm_config_db #(virtual core_if)::set(null, "*", "core_vif_obj", core_vif);
+
+        // b. Arrancamos UVM ejecutando el test principal
+        // UVM tomará el control a partir de aquí
+        run_test("base_test"); 
+    end
 
 endmodule
+
