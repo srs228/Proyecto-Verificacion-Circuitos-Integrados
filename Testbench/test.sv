@@ -1,27 +1,39 @@
-program testcase(core_if core_vif);
+//Paso 1: Crear la clase que extiende de la clase base uvm_test
+class base_test extends uvm_test;
+    //Paso 2: Registrarse en la fábrica
+    `uvm_component_utils(base_test)
 
+    //Paso 3: Declarar la instancia de los componentes necesarios  
     env env_obj;
-    int unsigned drain_cycles;
 
-    initial begin
-        $dumpfile("dump.vcd");
-        $dumpvars(0);
+    //Paso 4: Crear el constructor. Esto es casi genérico para todos los componentes
+    function new(string name = "base_test", uvm_component parent = null);
+        super.new(name, parent);
+    endfunction
 
-        env_obj = new(core_vif);
+    //Paso 5: En build phase configuramos asignando a atributos, o creamos instancias
+    virtual function void build_phase(uvm_phase phase);
+        super.build_phase(phase);
+    // NOTA: "EnvOBJ" es el nombre de la instancia en la jerarquía UVM.
+        env_obj = env::type_id::create("EnvOBJ", this);
+    endfunction
 
-        env_obj.reset();
-        env_obj.build_program(120);
-        env_obj.start_components();
+    //Paso 6: Opcional imprimir la topología.
+    virtual function void end_of_elaboration_phase (uvm_phase phase);
+        uvm_top.print_topology ();
+    endfunction
 
-        wait (core_vif.reset_core === 1'b0);
-
-        drain_cycles = (core_vif.program_words * 12) + 200;
-        repeat (drain_cycles) @(posedge core_vif.clk);
-
-        env_obj.report();
-
-        $display("[FIN] Simulacion terminada.");
-        $finish;
-    end
-
-endprogram
+    virtual task run_phase (uvm_phase phase);  
+        //Se define una secuencia
+        base_sequence base_sequence_obj = base_sequence::type_id::create("Secuencia inicial");
+        super.run_phase(phase);
+        // Debemos levantar una objecion para que el test no termine antes de tiempo
+        phase.raise_objection(this);
+        
+        // NOTA (Secuenciador y Agente): 
+        // Revisar en agent.sv y env.sv cómo nombraron las variables.
+        base_sequence_obj.start(env_obj.agent_obj.sequencer_obj);
+        
+        phase.drop_objection(this);
+    endtask
+endclass
