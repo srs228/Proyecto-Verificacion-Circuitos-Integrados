@@ -34,6 +34,12 @@ class base_test extends uvm_test;
         // Revisar en agent.sv y env.sv cómo nombraron las variables.
         base_sequence_obj.start(env_obj.agent_obj.sequencer_obj);
         
+        // Esperar suficientes ciclos de reloj para que el DUT salga del reset
+        // (10 ciclos) y ejecute todas las instrucciones del programa (~96 palabras
+        // x ~2 ciclos c/u). Con un reloj de 10ns (período): 5000 ciclos = 50 us.
+        // Esto permite que los monitores observen las transacciones del DUT.
+        #50000;
+        
         phase.drop_objection(this);
     endtask
 endclass

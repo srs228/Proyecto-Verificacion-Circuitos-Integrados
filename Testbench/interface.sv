@@ -55,7 +55,7 @@ interface core_if(input logic clk);
     // En palabras: Si el procesador está funcionando (fuera de reset),
     // la dirección de instrucción (iaddr) nunca debe ser un valor desconocido (X o Z).
     property p_iaddr_valido;
-        @(posedge clk) disable iff (reset_core) |-> (!$isunknown(iaddr));
+        @(posedge clk) disable iff (reset_core) !$isunknown(iaddr);
     endproperty
 
     asercion_iaddr_valido: assert property (p_iaddr_valido)

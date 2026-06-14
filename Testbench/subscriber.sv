@@ -35,19 +35,25 @@ class core_subscriber extends uvm_subscriber #(instr_txn);
         option.name         = "cg_instr";
 
         // (1) Formato/opcode de la instruccion.
-        cp_opcode : coverpoint cov_opcode {
+        cp_opcode : coverpoint cov_opcode
+            iff (cov_opcode inside {OPC_RTYPE, OPC_ITYPE, OPC_LUI, OPC_AUIPC}) {
             bins RTYPE = {OPC_RTYPE};
             bins ITYPE = {OPC_ITYPE};
-            bins LUI   = {OPC_LUI};
-            bins AUIPC = {OPC_AUIPC};
-            bins JAL   = {OPC_JAL};
-            bins otros = default;   // loads/stores/branches: no penaliza cobertura
+            bins UTYPE = {OPC_LUI, OPC_AUIPC};
         }
 
         // (2) Registro destino rd (RV32E = 16 registros).
         //     x16..x31 no deberian existir -> illegal_bins.
         cp_rd : coverpoint cov_rd {
             bins x[]            = {[0:15]};
+            illegal_bins fuera  = {[16:31]};
+        }
+
+        // Agrupacion de rd para cruces: reduce el denominador sin perder señal util.
+        cp_rd_grp : coverpoint cov_rd {
+            bins x0   = {5'd0};
+            bins low  = {[1:7]};
+            bins high = {[8:15]};
             illegal_bins fuera  = {[16:31]};
         }
 
@@ -60,7 +66,7 @@ class core_subscriber extends uvm_subscriber #(instr_txn);
 
         // (4) Registro fuente rs2 (solo R lo usa).
         cp_rs2 : coverpoint cov_rs2 iff (cov_opcode == OPC_RTYPE) {
-            bins x[]            = {[0:15]};
+            bins x[]            = {[1:15]};
             illegal_bins fuera  = {[16:31]};
         }
 
@@ -74,7 +80,7 @@ class core_subscriber extends uvm_subscriber #(instr_txn);
         cp_funct7 : coverpoint cov_funct7 iff (cov_opcode == OPC_RTYPE) {
             bins normal = {7'b0000000};
             bins alt    = {7'b0100000};
-            bins otros  = default;
+            illegal_bins otros = default;
         }
 
         // (7) Operacion R-type especifica = {funct7, funct3}.
@@ -90,7 +96,7 @@ class core_subscriber extends uvm_subscriber #(instr_txn);
             bins SRA   = {10'b0100000_101};
             bins OR_   = {10'b0000000_110};
             bins AND_  = {10'b0000000_111};
-            bins otros = default;
+            illegal_bins otros = default;
         }
 
         // (8) Operacion I-type especifica (por funct3).
@@ -106,6 +112,24 @@ class core_subscriber extends uvm_subscriber #(instr_txn);
             bins SR_I  = {3'b101};
         }
 
+        cp_itype_shift : coverpoint {cov_funct7, cov_funct3}
+            iff (cov_opcode == OPC_ITYPE && cov_funct3 == 3'b101) {
+            bins SRLI = {10'b0000000_101};
+            bins SRAI = {10'b0100000_101};
+            illegal_bins otros = default;
+        }
+
+        cp_rs1_grp : coverpoint cov_rs1
+            iff (cov_opcode == OPC_RTYPE || cov_opcode == OPC_ITYPE) {
+            bins low  = {[0:7]};
+            bins high = {[8:15]};
+        }
+
+        cp_rs2_grp : coverpoint cov_rs2 iff (cov_opcode == OPC_RTYPE) {
+            bins low  = {[1:7]};
+            bins high = {[8:15]};
+        }
+
         // (9) Escritura a x0 (caso especial RV32E: debe descartarse).
         cp_rd_zero : coverpoint (cov_rd == 5'd0) {
             bins escribe_x0   = {1};
@@ -115,14 +139,18 @@ class core_subscriber extends uvm_subscriber #(instr_txn);
         // --------------------------------------------------------
         // Crosscoverages
         // --------------------------------------------------------
-        // (A) Que tipo de instruccion escribio en cada registro destino.
-        cross_op_rd    : cross cp_opcode, cp_rd;
+        // (A) Que tipo de instruccion escribio por grupo de destino.
+        cross_op_rd : cross cp_opcode, cp_rd_grp {
+            ignore_bins rd_x0 = binsof(cp_rd_grp.x0);
+        }
 
-        // (B) Cada operacion R-type ejercitada con cada destino.
-        cross_rtype_rd : cross cp_rtype_op, cp_rd;
+        // (B) Cada operacion R-type ejercitada por grupo de destino.
+        cross_rtype_rd : cross cp_rtype_op, cp_rd_grp {
+            ignore_bins rd_x0 = binsof(cp_rd_grp.x0);
+        }
 
         // (C) Todas las combinaciones de registros fuente (puertos de lectura).
-        cross_rs1_rs2  : cross cp_rs1, cp_rs2;
+        cross_rs1_rs2  : cross cp_rs1_grp, cp_rs2_grp;
 
     endgroup
 

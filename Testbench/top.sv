@@ -1,7 +1,3 @@
-// Incluir macros e importar el paquete de UVM
-`include "uvm_macros.svh"
-import uvm_pkg::*;
-
 module top;
 
     logic clk;
@@ -13,7 +9,7 @@ module top;
     wire [31:0] oport_nc;
     wire [3:0] debug;
 
-    // Interfaz compartida entre DUT, scoreboard y checker
+    // Interfaz compartida entre DUT y scoreboard (verifica todas las transacciones)
     core_if core_vif(clk);
 
     // Instanciar el módulo de aserciones
@@ -84,7 +80,7 @@ module top;
 
         // a. Subimos la interfaz a la base de datos de UVM
         // Esto reemplaza tener que pasar la interfaz como argumento a las clases
-        uvm_config_db #(virtual core_if)::set(null, "*", "core_vif_obj", core_vif);
+        uvm_config_db #(virtual core_if)::set(null, "", "core_vif_obj", core_vif);
 
         // b. Arrancamos UVM ejecutando el test principal
         // UVM tomará el control a partir de aquí

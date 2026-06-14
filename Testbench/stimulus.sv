@@ -48,10 +48,12 @@ class core_stimulus;
     function void add_bootstrap(ref logic [31:0] prog[$]);
         int unsigned r;
         logic [11:0] seed_imm;
+        logic [4:0]  rd_reg;
 
         for (r = 1; r <= 15; r++) begin
             seed_imm = (12'((r * 17) + 3)) & 12'h7ff;
-            prog.push_back(enc_i(seed_imm, 5'd0, 3'b000, logic'(r[4:0]), 7'b0010011));
+            rd_reg   = r[4:0];
+            prog.push_back(enc_i(seed_imm, 5'd0, 3'b000, rd_reg, 7'b0010011));
         end
     endfunction
 

@@ -9,72 +9,15 @@
 // y compilarse con un simulador con soporte UVM (VCS, Questa,
 // Xcelium o Riviera-PRO en EDAPlayground).
 // ============================================================
-
+// NOTA 2: instr_txn y los localparam OPC_* han sido movidos a
+// instr_txn.sv para evitar redefinición. Incluir instr_txn.sv
+// ANTES de scoreboard.sv en testbench.sv.
 // ============================================================
-// Opcodes RV32
-// ============================================================
-localparam bit [6:0] OPC_RTYPE = 7'b0110011;  // R : ADD, SUB, SLL, ...
-localparam bit [6:0] OPC_ITYPE = 7'b0010011;  // I : ADDI, SLTI, SLLI, ...
-localparam bit [6:0] OPC_LUI   = 7'b0110111;  // U : LUI
-localparam bit [6:0] OPC_AUIPC = 7'b0010111;  // U : AUIPC
-localparam bit [6:0] OPC_JAL   = 7'b1101111;  // J : JAL (opcional)
 
-// ============================================================
-// Transaccion (uvm_sequence_item)
-// ============================================================
-class instr_txn extends uvm_sequence_item;
-
-    // Capturado en el ciclo de retiro:
-    bit [31:0] pc;
-    bit [31:0] instr;
-    bit [31:0] rs1_val;
-    bit [31:0] rs2_val;
-
-    // Resultado escrito en rd (R / I / U / JAL).
-    bit [31:0] rd_val_actual;
-
-    // Campos decodificados (auxiliares)
-    bit [4:0]  rs1, rs2, rd;
-    bit [2:0]  funct3;
-    bit [6:0]  funct7, opcode;
-
-    // Inmediatos con extension de signo / formato
-    bit [31:0] imm_i;
-    bit [31:0] imm_u;
-    bit [31:0] imm_j;
-
-    // Registro en la fabrica + macros de campo (copy, compare, print, ...)
-    `uvm_object_utils_begin(instr_txn)
-        `uvm_field_int(pc,            UVM_ALL_ON | UVM_HEX)
-        `uvm_field_int(instr,         UVM_ALL_ON | UVM_HEX)
-        `uvm_field_int(rs1_val,       UVM_ALL_ON | UVM_HEX)
-        `uvm_field_int(rs2_val,       UVM_ALL_ON | UVM_HEX)
-        `uvm_field_int(rd_val_actual, UVM_ALL_ON | UVM_HEX)
-    `uvm_object_utils_end
-
-    function new(string name = "instr_txn");
-        super.new(name);
-    endfunction
-
-    function void decode();
-        opcode = instr[6:0];
-        rd     = instr[11:7];
-        funct3 = instr[14:12];
-        rs1    = instr[19:15];
-        rs2    = instr[24:20];
-        funct7 = instr[31:25];
-
-        // I-type: imm[11:0] = instr[31:20] (con extension de signo)
-        imm_i = {{20{instr[31]}}, instr[31:20]};
-
-        // U-type: imm[31:12] = instr[31:12], 12 bits bajos en cero
-        imm_u = {instr[31:12], 12'b0};
-
-        // J-type: imm = { [20]=i31, [19:12]=i19:12, [11]=i20, [10:1]=i30:21, 0 }
-        imm_j = {{11{instr[31]}}, instr[31], instr[19:12],
-                 instr[20], instr[30:21], 1'b0};
-    endfunction
-endclass
+// Declarar los dos sufijos de uvm_analysis_imp
+// (deben estar antes de la clase que los usa)
+`uvm_analysis_imp_decl( _rdifc )
+`uvm_analysis_imp_decl( _wrifc )
 
 // ============================================================
 // Modelos de referencia
@@ -88,6 +31,7 @@ function automatic bit [31:0] predict_rtype(
     input bit [6:0]  funct7
 );
     bit [4:0] shamt = b[4:0];
+    bit signed [31:0] a_s = $signed(a);
     case ({funct7, funct3})
         10'b0000000_000: predict_rtype = a + b;                             // ADD
         10'b0100000_000: predict_rtype = a - b;                             // SUB
@@ -96,7 +40,7 @@ function automatic bit [31:0] predict_rtype(
         10'b0000000_011: predict_rtype = (a < b) ? 1 : 0;                   // SLTU
         10'b0000000_100: predict_rtype = a ^ b;                             // XOR
         10'b0000000_101: predict_rtype = a >> shamt;                        // SRL
-        10'b0100000_101: predict_rtype = $signed(a) >>> shamt;              // SRA
+        10'b0100000_101: predict_rtype = $unsigned(a_s >>> shamt);          // SRA
         10'b0000000_110: predict_rtype = a | b;                             // OR
         10'b0000000_111: predict_rtype = a & b;                             // AND
         default:         predict_rtype = 32'hDEAD_BEEF;                     // ilegal
@@ -111,6 +55,7 @@ function automatic bit [31:0] predict_itype(
     input bit [6:0]  funct7   // distingue SRLI (0000000) de SRAI (0100000)
 );
     bit [4:0] shamt = imm[4:0];
+    bit signed [31:0] a_s = $signed(a);
     case (funct3)
         3'b000: predict_itype = a + imm;                                // ADDI
         3'b010: predict_itype = ($signed(a) < $signed(imm)) ? 1 : 0;    // SLTI
@@ -119,9 +64,12 @@ function automatic bit [31:0] predict_itype(
         3'b110: predict_itype = a | imm;                                // ORI
         3'b111: predict_itype = a & imm;                                // ANDI
         3'b001: predict_itype = a << shamt;                             // SLLI
-        3'b101: predict_itype = (funct7 == 7'b0100000)
-                                  ? ($signed(a) >>> shamt)              // SRAI
-                                  : (a >> shamt);                       // SRLI
+        3'b101: begin
+            if (funct7 == 7'b0100000)
+                predict_itype = $unsigned(a_s >>> shamt);              // SRAI
+            else
+                predict_itype = a >> shamt;                            // SRLI
+        end
         default: predict_itype = 32'hDEAD_BEEF;                         // ilegal
     endcase
 endfunction
@@ -147,8 +95,11 @@ class core_scoreboard extends uvm_scoreboard;
     // Registro en la fabrica
     `uvm_component_utils(core_scoreboard)
 
-    // Puerto de analisis: recibe transacciones del monitor (TLM)
-    uvm_analysis_imp #(instr_txn, core_scoreboard) imp;
+    // Puertos de analisis duales:
+    //   _rdifc  ← agent_read.monitor_obj   (lado fetch/predict)
+    //   _wrifc  ← agent.monitor_write_obj  (lado write-back/observe)
+    uvm_analysis_imp_rdifc #(instr_txn, core_scoreboard) uvm_analysis_imp_rdifc_obj;
+    uvm_analysis_imp_wrifc #(instr_txn, core_scoreboard) uvm_analysis_imp_wrifc_obj;
 
     // Estadisticas
     int unsigned num_checked;
@@ -167,25 +118,41 @@ class core_scoreboard extends uvm_scoreboard;
     endfunction
 
     // ------------------------------------------------------------
-    // build_phase: crear el analysis imp
+    // build_phase: crear los dos analysis imp
     // ------------------------------------------------------------
     function void build_phase(uvm_phase phase);
         super.build_phase(phase);
-        imp = new("imp", this);
+        uvm_analysis_imp_rdifc_obj =
+            new("uvm_analysis_imp_rdifc_obj", this);
+        uvm_analysis_imp_wrifc_obj =
+            new("uvm_analysis_imp_wrifc_obj", this);
     endfunction
 
     // ------------------------------------------------------------
-    // write(): callback del analysis imp.
-    // Se invoca cada vez que el monitor hace ap.write(t).
+    // write_rdifc(): recibe transacción del monitor de fetch.
+    // En esta arquitectura el fetch-monitor captura la instrucción
+    // antes del write-back; se puede usar para almacenar el lado
+    // 'expected' si se quiere implementar match-por-PC.
+    // Por ahora se registra como informativo.
     // ------------------------------------------------------------
-    function void write(instr_txn t);
-        check(t);
+    virtual function void write_rdifc(instr_txn t);
+        verificar(t);
+    endfunction
+
+    // write_wrifc: recibe transacción del Monitor W (estimulo, rd_val_actual=0).
+    // Sólo se registra como informativo — la verificación ocurre en write_rdifc.
+    virtual function void write_wrifc(instr_txn t);
+        t.decode();
+        `uvm_info("SB",
+            $sformatf("[SB] Estimulo observado: pc=0x%08h instr=0x%08h op=%07b rs1=x%0d(0x%08h) rs2=x%0d(0x%08h)",
+                      t.pc, t.instr, t.opcode, t.rs1, t.rs1_val, t.rs2, t.rs2_val),
+            UVM_HIGH)
     endfunction
 
     // ------------------------------------------------------------
-    // Despachador por opcode
+    // verificar(): despachador por opcode
     // ------------------------------------------------------------
-    function void check(instr_txn t);
+    function void verificar(instr_txn t);
         t.decode();
         case (t.opcode)
             OPC_RTYPE          : check_rtype(t);
@@ -336,20 +303,7 @@ class core_scoreboard extends uvm_scoreboard;
         endcase
     endfunction
 
-    // ============================================================
-    // Funciones publicas para el checker (si se conserva)
-    // ============================================================
-    function bit [31:0] get_expected_rtype(
-        input bit [31:0] rs1_val, input bit [31:0] rs2_val,
-        input bit [2:0]  funct3,  input bit [6:0]  funct7);
-        return predict_rtype(rs1_val, rs2_val, funct3, funct7);
-    endfunction
 
-    function bit [31:0] get_expected_itype(
-        input bit [31:0] rs1_val, input bit [31:0] imm,
-        input bit [2:0]  funct3,  input bit [6:0]  funct7);
-        return predict_itype(rs1_val, imm, funct3, funct7);
-    endfunction
 
     function bit [31:0] get_expected_utype(
         input bit [6:0] opcode, input bit [31:0] pc, input bit [31:0] imm_u);

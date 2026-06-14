@@ -101,7 +101,7 @@ module darksocv
     // internal/external reset logic
 
     reg [7:0] IRES = -1;
-    $readmemh("darksocv.mem",MEM,0);
+    #1 $readmemh("darksocv.mem",MEM,0);
     `ifdef INVRES
         always@(posedge XCLK) IRES <= XRES==0 ? -1 : IRES[7] ? IRES-1 : 0; // reset low
     `else
