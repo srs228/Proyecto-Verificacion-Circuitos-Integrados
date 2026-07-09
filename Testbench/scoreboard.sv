@@ -9,105 +9,16 @@
 // y compilarse con un simulador con soporte UVM (VCS, Questa,
 // Xcelium o Riviera-PRO en EDAPlayground).
 // ============================================================
-// NOTA 2: instr_txn y los localparam OPC_* ESTAN DEFINIDOS
-// EN ESTE ARCHIVO. Por lo tanto:
-//   - Incluir scoreboard.sv ANTES de cualquier archivo que use
-//     instr_txn (subscriber.sv, monitor.sv, driver.sv, checker.sv,
-//     env.sv). interface.sv puede ir antes porque no usa instr_txn.
+// NOTA 2: instr_txn y los localparam OPC_* se DEFINEN en
+// instr_txn.sv (fuente unica). Este archivo debe compilarse
+// DESPUES de instr_txn.sv. Aqui viven solo los modelos de
+// referencia (predict_*) y la clase core_scoreboard.
 // ============================================================
 
 // ============================================================
-// Opcodes RV32
+// Los localparam OPC_* y la clase instr_txn (transaccion) se
+// definen en instr_txn.sv (fuente unica). Aqui NO se redefinen.
 // ============================================================
-localparam bit [6:0] OPC_RTYPE = 7'b0110011;  // R : ADD, SUB, SLL, ...
-localparam bit [6:0] OPC_ITYPE = 7'b0010011;  // I : ADDI, SLTI, SLLI, ...
-localparam bit [6:0] OPC_LUI   = 7'b0110111;  // U : LUI
-localparam bit [6:0] OPC_AUIPC = 7'b0010111;  // U : AUIPC
-localparam bit [6:0] OPC_BTYPE = 7'b1100011;  // B : BEQ, BNE, BLT, BGE, BLTU, BGEU
-localparam bit [6:0] OPC_STYPE = 7'b0100011;  // S : SB, SH, SW
-localparam bit [6:0] OPC_JAL   = 7'b1101111;  // J : JAL (opcional)
-
-// ============================================================
-// Transaccion (uvm_sequence_item)
-// ============================================================
-class instr_txn extends uvm_sequence_item;
-
-    // Capturado en el ciclo de retiro:
-    bit [31:0] pc;
-    bit [31:0] instr;
-    bit [31:0] rs1_val;
-    bit [31:0] rs2_val;
-
-    // Resultado escrito en rd (R / I / U / JAL).
-    bit [31:0] rd_val_actual;
-
-    // Campos decodificados (auxiliares)
-    bit [4:0]  rs1, rs2, rd;
-    bit [2:0]  funct3;
-    bit [6:0]  funct7, opcode;
-
-    // Inmediatos con extension de signo / formato
-    bit [31:0] imm_i;
-    bit [31:0] imm_u;
-    bit [31:0] imm_j;
-    bit [31:0] imm_b;   // B-type
-    bit [31:0] imm_s;   // S-type
-
-    // Para verificar B-type: PC de la SIGUIENTE instruccion retirada.
-    // Lo llena el monitor de fetch con captura diferida:
-    //   - al ver una rama, guarda la transaccion
-    //   - en el siguiente retiro, copia ese PC a next_pc y next_pc_valid=1
-    bit [31:0] next_pc;
-    bit        next_pc_valid;
-
-    // Para verificar S-type: observacion del bus de datos del core.
-    // Lo llena el monitor del bus al ver un store:
-    //   mem_addr  = DADDR  (rs1 + imm_s)
-    //   mem_wdata = DATAO  (dato escrito)
-    //   mem_valid = 1 cuando hay una escritura observada
-    bit [31:0] mem_addr;
-    bit [31:0] mem_wdata;
-    bit        mem_valid;
-
-    // Registro en la fabrica + macros de campo (copy, compare, print, ...)
-    `uvm_object_utils_begin(instr_txn)
-        `uvm_field_int(pc,            UVM_ALL_ON | UVM_HEX)
-        `uvm_field_int(instr,         UVM_ALL_ON | UVM_HEX)
-        `uvm_field_int(rs1_val,       UVM_ALL_ON | UVM_HEX)
-        `uvm_field_int(rs2_val,       UVM_ALL_ON | UVM_HEX)
-        `uvm_field_int(rd_val_actual, UVM_ALL_ON | UVM_HEX)
-    `uvm_object_utils_end
-
-    function new(string name = "instr_txn");
-        super.new(name);
-    endfunction
-
-    function void decode();
-        opcode = instr[6:0];
-        rd     = instr[11:7];
-        funct3 = instr[14:12];
-        rs1    = instr[19:15];
-        rs2    = instr[24:20];
-        funct7 = instr[31:25];
-
-        // I-type: imm[11:0] = instr[31:20] (con extension de signo)
-        imm_i = {{20{instr[31]}}, instr[31:20]};
-
-        // U-type: imm[31:12] = instr[31:12], 12 bits bajos en cero
-        imm_u = {instr[31:12], 12'b0};
-
-        // J-type: imm = { [20]=i31, [19:12]=i19:12, [11]=i20, [10:1]=i30:21, 0 }
-        imm_j = {{11{instr[31]}}, instr[31], instr[19:12],
-                 instr[20], instr[30:21], 1'b0};
-
-        // B-type: imm = { [12]=i31, [11]=i7, [10:5]=i30:25, [4:1]=i11:8, 0 }
-        imm_b = {{19{instr[31]}}, instr[31], instr[7],
-                 instr[30:25], instr[11:8], 1'b0};
-
-        // S-type: imm = { [11:5]=i31:25, [4:0]=i11:7 }
-        imm_s = {{20{instr[31]}}, instr[31:25], instr[11:7]};
-    endfunction
-endclass
 
 // Declarar los dos sufijos de uvm_analysis_imp
 // (deben estar antes de la clase que los usa)
@@ -236,6 +147,11 @@ class core_scoreboard extends uvm_scoreboard;
     // Contadores por instruccion (cobertura informal)
     int unsigned op_count [string];
 
+    // Modelo sombra de memoria (estado arquitectonico esperado).
+    // Se actualiza con cada SW y permite predecir el dato de un LW
+    // posterior a la misma direccion (verificacion store -> load).
+    bit [31:0] mem_model [int unsigned];
+
     // ------------------------------------------------------------
     // Constructor UVM
     // ------------------------------------------------------------
@@ -283,10 +199,12 @@ class core_scoreboard extends uvm_scoreboard;
             OPC_RTYPE          : check_rtype(t);
             OPC_ITYPE          : check_itype(t);
             OPC_LUI, OPC_AUIPC : check_utype(t);
+            OPC_LOAD           : check_load(t);    // LW
+            OPC_STYPE          : check_stype(t);   // stores (SW)
             OPC_BTYPE          : check_btype(t);   // ramas
-            OPC_STYPE          : check_stype(t);   // stores
-            OPC_JAL            : check_jal(t);     // opcional
-            default            : num_skipped++;    // loads, system, ...
+            OPC_JAL            : check_jal(t);     // JAL
+            OPC_JALR           : check_jalr(t);    // JALR
+            default            : num_skipped++;    // FENCE, SYSTEM, ...
         endcase
     endfunction
 
@@ -435,6 +353,11 @@ class core_scoreboard extends uvm_scoreboard;
         addr_esp = t.rs1_val + t.imm_s;
         data_esp = predict_store_data(t.rs2_val, t.funct3);
 
+        // Actualiza el modelo sombra de memoria (estado arquitectonico
+        // esperado) para poder verificar un LW posterior. Solo SW (palabra).
+        if (t.funct3 == 3'b010)
+            mem_model[addr_esp & ~32'h3] = data_esp;
+
         // Sin observacion del bus no se puede verificar.
         if (!t.mem_valid) begin
             num_unverified++;
@@ -469,6 +392,43 @@ class core_scoreboard extends uvm_scoreboard;
     endfunction
 
     // ------------------------------------------------------------
+    // LOAD (LW): rd <- MEM[rs1 + imm_i].
+    // Se verifica contra el modelo sombra de memoria, que se llena con
+    // cada SW observado (ver check_stype): comprueba el viaje completo
+    // store -> load. Si la direccion no fue escrita por un SW previo, no
+    // se puede predecir el dato -> no verificado. El documento solo exige
+    // LW; LB/LH/LBU/LHU se cuentan pero no se predicen.
+    // ------------------------------------------------------------
+    function void check_load(instr_txn t);
+        bit [31:0] addr;
+        string     m;
+        string     ops;
+
+        m    = load_name(t.funct3);
+        addr = (t.rs1_val + t.imm_i) & ~32'h3;   // palabra alineada
+        ops  = $sformatf("addr=%08h [rs1=x%0d=%08h + imm=%08h]",
+                         addr, t.rs1, t.rs1_val, t.imm_i);
+
+        // LW x0: el resultado se descarta; solo se verifica que rd = 0.
+        if (t.rd == 5'd0) begin
+            check_rd_write(t, 32'h0, m, ops);
+            return;
+        end
+
+        // Solo se predice LW (palabra) y solo si hubo un SW previo.
+        if (t.funct3 == 3'b010 && mem_model.exists(addr)) begin
+            check_rd_write(t, mem_model[addr], m, ops);
+        end
+        else begin
+            op_count[m]++;
+            num_unverified++;
+            `uvm_info("SB", $sformatf(
+                "INFO pc=%08h %-4s %s (sin SW previo / tamano no modelado: no verificado)",
+                t.pc, m, ops), UVM_LOW)
+        end
+    endfunction
+
+    // ------------------------------------------------------------
     // JAL : verifica el enlace rd = pc + 4.
     // El destino del salto requeriria next_pc (no implementado aqui).
     // ------------------------------------------------------------
@@ -478,6 +438,21 @@ class core_scoreboard extends uvm_scoreboard;
         expected_link = t.pc + 32'd4;
         ops = $sformatf("destino=%08h", t.pc + t.imm_j);
         check_rd_write(t, expected_link, "JAL", ops);
+    endfunction
+
+    // ------------------------------------------------------------
+    // JALR: rd <- pc + 4 (enlace); objetivo = (rs1 + imm_i) & ~1.
+    // El enlace (rd) se verifica con los datos disponibles (rd_val_actual).
+    // ------------------------------------------------------------
+    function void check_jalr(instr_txn t);
+        bit [31:0] expected_link;
+        bit [31:0] target;
+        string     ops;
+        expected_link = t.pc + 32'd4;
+        target        = (t.rs1_val + t.imm_i) & ~32'h1;
+        ops = $sformatf("objetivo=%08h [ (rs1=x%0d=%08h + imm=%08h) & ~1 ]",
+                        target, t.rs1, t.rs1_val, t.imm_i);
+        check_rd_write(t, expected_link, "JALR", ops);
     endfunction
 
     // ------------------------------------------------------------
@@ -555,6 +530,17 @@ class core_scoreboard extends uvm_scoreboard;
         endcase
     endfunction
 
+    function string load_name(bit [2:0] f3);
+        case (f3)
+            3'b000: return "LB";
+            3'b001: return "LH";
+            3'b010: return "LW";
+            3'b100: return "LBU";
+            3'b101: return "LHU";
+            default: return "L-ILLEGAL";
+        endcase
+    endfunction
+
     // ============================================================
     // Funciones publicas para el checker (si se conserva)
     // ============================================================
@@ -587,6 +573,10 @@ class core_scoreboard extends uvm_scoreboard;
 
     function string get_stype_name(input bit [2:0] funct3);
         return stype_name(funct3);
+    endfunction
+
+    function string get_load_name(input bit [2:0] funct3);
+        return load_name(funct3);
     endfunction
 
 endclass

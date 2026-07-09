@@ -4,6 +4,10 @@ localparam bit [6:0] OPC_ITYPE = 7'b0010011;  // I : ADDI, SLTI, SLLI, ...
 localparam bit [6:0] OPC_LUI   = 7'b0110111;  // U : LUI
 localparam bit [6:0] OPC_AUIPC = 7'b0010111;  // U : AUIPC
 localparam bit [6:0] OPC_JAL   = 7'b1101111;  // J : JAL (opcional)
+localparam bit [6:0] OPC_LOAD  = 7'b0000011;  // I : LW  (loads)
+localparam bit [6:0] OPC_STYPE = 7'b0100011;  // S : SB, SH, SW
+localparam bit [6:0] OPC_BTYPE = 7'b1100011;  // B : BEQ, BNE, BLT, BGE, BLTU, BGEU
+localparam bit [6:0] OPC_JALR  = 7'b1100111;  // I : JALR
 
 // Tipos de instrucción soportados por la sequence
 typedef enum int unsigned {
@@ -52,6 +56,18 @@ class instr_txn extends uvm_sequence_item;
     bit [31:0] imm_i;
     bit [31:0] imm_u;
     bit [31:0] imm_j;
+    bit [31:0] imm_b;   // B-type (BRANCH)
+    bit [31:0] imm_s;   // S-type (STORE)
+
+    // Capturado por el monitor de fetch (verificacion de ramas, check_btype):
+    // next_pc = PC de la siguiente instruccion retirada; valido si next_pc_valid=1.
+    bit [31:0] next_pc;
+    bit        next_pc_valid;
+
+    // Capturado por el monitor del bus de datos (verificacion de stores, check_stype):
+    bit [31:0] mem_addr;    // DADDR  (rs1 + imm_s)
+    bit [31:0] mem_wdata;   // DATAO  (dato escrito)
+    bit        mem_valid;   // 1 cuando hay una escritura observada
 
     // Restricciones de aleatoriedad
     constraint c_tipo_dist {
@@ -121,6 +137,11 @@ class instr_txn extends uvm_sequence_item;
         imm_u  = {instr[31:12], 12'b0};
         imm_j  = {{11{instr[31]}}, instr[31], instr[19:12],
                   instr[20], instr[30:21], 1'b0};
+        // B-type: imm = { [12]=i31, [11]=i7, [10:5]=i30:25, [4:1]=i11:8, 0 }
+        imm_b  = {{19{instr[31]}}, instr[31], instr[7],
+                  instr[30:25], instr[11:8], 1'b0};
+        // S-type: imm = { [11:5]=i31:25, [4:0]=i11:7 }
+        imm_s  = {{20{instr[31]}}, instr[31:25], instr[11:7]};
     endfunction
 
     // instr_type_str: nombre legible del tipo de instrucción
