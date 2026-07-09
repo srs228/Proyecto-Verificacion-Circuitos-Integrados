@@ -25,7 +25,9 @@ localparam bit [6:0] OPC_LUI   = 7'b0110111;  // U : LUI
 localparam bit [6:0] OPC_AUIPC = 7'b0010111;  // U : AUIPC
 localparam bit [6:0] OPC_BTYPE = 7'b1100011;  // B : BEQ, BNE, BLT, BGE, BLTU, BGEU
 localparam bit [6:0] OPC_STYPE = 7'b0100011;  // S : SB, SH, SW
-localparam bit [6:0] OPC_JAL   = 7'b1101111;  // J : JAL (opcional)
+localparam bit [6:0] OPC_JAL   = 7'b1101111;  // J : JAL
+localparam bit [6:0] OPC_LOAD  = 7'b0000011;  // I : LW  (loads)
+localparam bit [6:0] OPC_JALR  = 7'b1100111;  // I : JALR
 
 // ============================================================
 // Transaccion (uvm_sequence_item)
@@ -236,6 +238,11 @@ class core_scoreboard extends uvm_scoreboard;
     // Contadores por instruccion (cobertura informal)
     int unsigned op_count [string];
 
+    // Modelo sombra de memoria (estado arquitectonico esperado).
+    // Se actualiza con cada SW y permite predecir el dato de un LW
+    // posterior a la misma direccion (verificacion store -> load).
+    bit [31:0] mem_model [int unsigned];
+
     // ------------------------------------------------------------
     // Constructor UVM
     // ------------------------------------------------------------
@@ -283,10 +290,12 @@ class core_scoreboard extends uvm_scoreboard;
             OPC_RTYPE          : check_rtype(t);
             OPC_ITYPE          : check_itype(t);
             OPC_LUI, OPC_AUIPC : check_utype(t);
+            OPC_LOAD           : check_load(t);    // LW
+            OPC_STYPE          : check_stype(t);   // stores (SW)
             OPC_BTYPE          : check_btype(t);   // ramas
-            OPC_STYPE          : check_stype(t);   // stores
-            OPC_JAL            : check_jal(t);     // opcional
-            default            : num_skipped++;    // loads, system, ...
+            OPC_JAL            : check_jal(t);     // JAL
+            OPC_JALR           : check_jalr(t);    // JALR
+            default            : num_skipped++;    // FENCE, SYSTEM, ...
         endcase
     endfunction
 
@@ -435,6 +444,11 @@ class core_scoreboard extends uvm_scoreboard;
         addr_esp = t.rs1_val + t.imm_s;
         data_esp = predict_store_data(t.rs2_val, t.funct3);
 
+        // Actualiza el modelo sombra de memoria (estado arquitectonico
+        // esperado) para poder verificar un LW posterior. Solo SW (palabra).
+        if (t.funct3 == 3'b010)
+            mem_model[addr_esp & ~32'h3] = data_esp;
+
         // Sin observacion del bus no se puede verificar.
         if (!t.mem_valid) begin
             num_unverified++;
@@ -469,6 +483,43 @@ class core_scoreboard extends uvm_scoreboard;
     endfunction
 
     // ------------------------------------------------------------
+    // LOAD (LW): rd <- MEM[rs1 + imm_i].
+    // Se verifica contra el modelo sombra de memoria, que se llena con
+    // cada SW observado (ver check_stype): comprueba el viaje completo
+    // store -> load. Si la direccion no fue escrita por un SW previo, no
+    // se puede predecir el dato -> no verificado. El documento solo exige
+    // LW; LB/LH/LBU/LHU se cuentan pero no se predicen.
+    // ------------------------------------------------------------
+    function void check_load(instr_txn t);
+        bit [31:0] addr;
+        string     m;
+        string     ops;
+
+        m    = load_name(t.funct3);
+        addr = (t.rs1_val + t.imm_i) & ~32'h3;   // palabra alineada
+        ops  = $sformatf("addr=%08h [rs1=x%0d=%08h + imm=%08h]",
+                         addr, t.rs1, t.rs1_val, t.imm_i);
+
+        // LW x0: el resultado se descarta; solo se verifica que rd = 0.
+        if (t.rd == 5'd0) begin
+            check_rd_write(t, 32'h0, m, ops);
+            return;
+        end
+
+        // Solo se predice LW (palabra) y solo si hubo un SW previo.
+        if (t.funct3 == 3'b010 && mem_model.exists(addr)) begin
+            check_rd_write(t, mem_model[addr], m, ops);
+        end
+        else begin
+            op_count[m]++;
+            num_unverified++;
+            `uvm_info("SB", $sformatf(
+                "INFO pc=%08h %-4s %s (sin SW previo / tamano no modelado: no verificado)",
+                t.pc, m, ops), UVM_LOW)
+        end
+    endfunction
+
+    // ------------------------------------------------------------
     // JAL : verifica el enlace rd = pc + 4.
     // El destino del salto requeriria next_pc (no implementado aqui).
     // ------------------------------------------------------------
@@ -478,6 +529,21 @@ class core_scoreboard extends uvm_scoreboard;
         expected_link = t.pc + 32'd4;
         ops = $sformatf("destino=%08h", t.pc + t.imm_j);
         check_rd_write(t, expected_link, "JAL", ops);
+    endfunction
+
+    // ------------------------------------------------------------
+    // JALR: rd <- pc + 4 (enlace); objetivo = (rs1 + imm_i) & ~1.
+    // El enlace (rd) se verifica con los datos disponibles (rd_val_actual).
+    // ------------------------------------------------------------
+    function void check_jalr(instr_txn t);
+        bit [31:0] expected_link;
+        bit [31:0] target;
+        string     ops;
+        expected_link = t.pc + 32'd4;
+        target        = (t.rs1_val + t.imm_i) & ~32'h1;
+        ops = $sformatf("objetivo=%08h [ (rs1=x%0d=%08h + imm=%08h) & ~1 ]",
+                        target, t.rs1, t.rs1_val, t.imm_i);
+        check_rd_write(t, expected_link, "JALR", ops);
     endfunction
 
     // ------------------------------------------------------------
@@ -555,6 +621,17 @@ class core_scoreboard extends uvm_scoreboard;
         endcase
     endfunction
 
+    function string load_name(bit [2:0] f3);
+        case (f3)
+            3'b000: return "LB";
+            3'b001: return "LH";
+            3'b010: return "LW";
+            3'b100: return "LBU";
+            3'b101: return "LHU";
+            default: return "L-ILLEGAL";
+        endcase
+    endfunction
+
     // ============================================================
     // Funciones publicas para el checker (si se conserva)
     // ============================================================
@@ -587,6 +664,10 @@ class core_scoreboard extends uvm_scoreboard;
 
     function string get_stype_name(input bit [2:0] funct3);
         return stype_name(funct3);
+    endfunction
+
+    function string get_load_name(input bit [2:0] funct3);
+        return load_name(funct3);
     endfunction
 
 endclass
