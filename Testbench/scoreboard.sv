@@ -9,107 +9,16 @@
 // y compilarse con un simulador con soporte UVM (VCS, Questa,
 // Xcelium o Riviera-PRO en EDAPlayground).
 // ============================================================
-// NOTA 2: instr_txn y los localparam OPC_* ESTAN DEFINIDOS
-// EN ESTE ARCHIVO. Por lo tanto:
-//   - Incluir scoreboard.sv ANTES de cualquier archivo que use
-//     instr_txn (subscriber.sv, monitor.sv, driver.sv, checker.sv,
-//     env.sv). interface.sv puede ir antes porque no usa instr_txn.
+// NOTA 2: instr_txn y los localparam OPC_* se DEFINEN en
+// instr_txn.sv (fuente unica). Este archivo debe compilarse
+// DESPUES de instr_txn.sv. Aqui viven solo los modelos de
+// referencia (predict_*) y la clase core_scoreboard.
 // ============================================================
 
 // ============================================================
-// Opcodes RV32
+// Los localparam OPC_* y la clase instr_txn (transaccion) se
+// definen en instr_txn.sv (fuente unica). Aqui NO se redefinen.
 // ============================================================
-localparam bit [6:0] OPC_RTYPE = 7'b0110011;  // R : ADD, SUB, SLL, ...
-localparam bit [6:0] OPC_ITYPE = 7'b0010011;  // I : ADDI, SLTI, SLLI, ...
-localparam bit [6:0] OPC_LUI   = 7'b0110111;  // U : LUI
-localparam bit [6:0] OPC_AUIPC = 7'b0010111;  // U : AUIPC
-localparam bit [6:0] OPC_BTYPE = 7'b1100011;  // B : BEQ, BNE, BLT, BGE, BLTU, BGEU
-localparam bit [6:0] OPC_STYPE = 7'b0100011;  // S : SB, SH, SW
-localparam bit [6:0] OPC_JAL   = 7'b1101111;  // J : JAL
-localparam bit [6:0] OPC_LOAD  = 7'b0000011;  // I : LW  (loads)
-localparam bit [6:0] OPC_JALR  = 7'b1100111;  // I : JALR
-
-// ============================================================
-// Transaccion (uvm_sequence_item)
-// ============================================================
-class instr_txn extends uvm_sequence_item;
-
-    // Capturado en el ciclo de retiro:
-    bit [31:0] pc;
-    bit [31:0] instr;
-    bit [31:0] rs1_val;
-    bit [31:0] rs2_val;
-
-    // Resultado escrito en rd (R / I / U / JAL).
-    bit [31:0] rd_val_actual;
-
-    // Campos decodificados (auxiliares)
-    bit [4:0]  rs1, rs2, rd;
-    bit [2:0]  funct3;
-    bit [6:0]  funct7, opcode;
-
-    // Inmediatos con extension de signo / formato
-    bit [31:0] imm_i;
-    bit [31:0] imm_u;
-    bit [31:0] imm_j;
-    bit [31:0] imm_b;   // B-type
-    bit [31:0] imm_s;   // S-type
-
-    // Para verificar B-type: PC de la SIGUIENTE instruccion retirada.
-    // Lo llena el monitor de fetch con captura diferida:
-    //   - al ver una rama, guarda la transaccion
-    //   - en el siguiente retiro, copia ese PC a next_pc y next_pc_valid=1
-    bit [31:0] next_pc;
-    bit        next_pc_valid;
-
-    // Para verificar S-type: observacion del bus de datos del core.
-    // Lo llena el monitor del bus al ver un store:
-    //   mem_addr  = DADDR  (rs1 + imm_s)
-    //   mem_wdata = DATAO  (dato escrito)
-    //   mem_valid = 1 cuando hay una escritura observada
-    bit [31:0] mem_addr;
-    bit [31:0] mem_wdata;
-    bit        mem_valid;
-
-    // Registro en la fabrica + macros de campo (copy, compare, print, ...)
-    `uvm_object_utils_begin(instr_txn)
-        `uvm_field_int(pc,            UVM_ALL_ON | UVM_HEX)
-        `uvm_field_int(instr,         UVM_ALL_ON | UVM_HEX)
-        `uvm_field_int(rs1_val,       UVM_ALL_ON | UVM_HEX)
-        `uvm_field_int(rs2_val,       UVM_ALL_ON | UVM_HEX)
-        `uvm_field_int(rd_val_actual, UVM_ALL_ON | UVM_HEX)
-    `uvm_object_utils_end
-
-    function new(string name = "instr_txn");
-        super.new(name);
-    endfunction
-
-    function void decode();
-        opcode = instr[6:0];
-        rd     = instr[11:7];
-        funct3 = instr[14:12];
-        rs1    = instr[19:15];
-        rs2    = instr[24:20];
-        funct7 = instr[31:25];
-
-        // I-type: imm[11:0] = instr[31:20] (con extension de signo)
-        imm_i = {{20{instr[31]}}, instr[31:20]};
-
-        // U-type: imm[31:12] = instr[31:12], 12 bits bajos en cero
-        imm_u = {instr[31:12], 12'b0};
-
-        // J-type: imm = { [20]=i31, [19:12]=i19:12, [11]=i20, [10:1]=i30:21, 0 }
-        imm_j = {{11{instr[31]}}, instr[31], instr[19:12],
-                 instr[20], instr[30:21], 1'b0};
-
-        // B-type: imm = { [12]=i31, [11]=i7, [10:5]=i30:25, [4:1]=i11:8, 0 }
-        imm_b = {{19{instr[31]}}, instr[31], instr[7],
-                 instr[30:25], instr[11:8], 1'b0};
-
-        // S-type: imm = { [11:5]=i31:25, [4:0]=i11:7 }
-        imm_s = {{20{instr[31]}}, instr[31:25], instr[11:7]};
-    endfunction
-endclass
 
 // Declarar los dos sufijos de uvm_analysis_imp
 // (deben estar antes de la clase que los usa)
