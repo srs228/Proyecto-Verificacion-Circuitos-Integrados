@@ -33,18 +33,19 @@ class env extends uvm_env;
     endfunction
 
     function void connect_phase (uvm_phase phase);
-        // Agent R / Monitor R -> Scoreboard : respuesta actual del DUT
-        // Agent W / Monitor W -> Scoreboard : referencia/estimulo observado
-        // Agent W / Monitor W -> Subscriber : cobertura funcional
+        super.connect_phase(phase);
         
+        // Agent R / Monitor R -> Scoreboard : respuesta actual del DUT
         agent_read_obj.monitor_obj.uvm_analysis_port_mon_obj.connect(
             scoreboard_obj.uvm_analysis_imp_rdifc_obj);
             
+        // Agent W / Monitor W -> Scoreboard : referencia/estimulo observado
         agent_obj.monitor_write_obj.uvm_analysis_port_mon_obj.connect(
             scoreboard_obj.uvm_analysis_imp_wrifc_obj);
             
+        // Agent W / Monitor W -> Subscriber : cobertura funcional
         agent_obj.monitor_write_obj.uvm_analysis_port_mon_obj.connect(
             subscriber_obj.analysis_export);
-    endfunction 
+    endfunction
 
 endclass

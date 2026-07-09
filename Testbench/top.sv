@@ -1,3 +1,7 @@
+// Package en el top del ambiente
+`include "uvm_macros.svh"
+import uvm_pkg::*;
+
 module top;
 
     logic clk;
