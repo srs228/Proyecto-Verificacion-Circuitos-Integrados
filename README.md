@@ -5,5 +5,5 @@ Desarrollado por los estudiantes:
 - Maria Fernanda Retana
 - Sebastian Rojas
 
-Avance 2 en EDA Playground
+Avance 3 en EDA Playground
 https://edaplayground.com/x/Ta5m
