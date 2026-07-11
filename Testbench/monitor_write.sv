@@ -29,22 +29,35 @@ class monitor_write extends uvm_monitor;
     virtual task run_phase(uvm_phase phase);
         instr_txn t;
         bit [6:0] opcode;
+        bit       opcode_ok;
         sent_count = 0;
         `uvm_info("MON_W", "[MON_W] Monitor de write/input iniciado", UVM_MEDIUM)
         forever begin
             @(posedge vif.clk);
             #1;
             if (!vif.reset_core) begin
+                if ($isunknown(vif.xidata) || $isunknown(vif.iaddr))
+                    continue;
+
                 opcode = vif.xidata[6:0];
-                if (!vif.hlt && !vif.flush &&
-                    (opcode == OPC_RTYPE || opcode == OPC_ITYPE ||
-                     opcode == OPC_LUI   || opcode == OPC_AUIPC)) begin
+                opcode_ok = (opcode == OPC_RTYPE || opcode == OPC_ITYPE ||
+                             opcode == OPC_LUI   || opcode == OPC_AUIPC ||
+                             opcode == OPC_LOAD  || opcode == OPC_STYPE ||
+                             opcode == OPC_BTYPE || opcode == OPC_JAL   ||
+                             opcode == OPC_JALR);
+                if (!vif.hlt && !vif.flush && opcode_ok) begin
                     t = instr_txn::type_id::create("mon_w_txn");
                     t.pc            = vif.iaddr;
                     t.instr         = vif.xidata;
                     t.rs1_val       = vif.u1reg;
                     t.rs2_val       = vif.u2reg;
                     t.rd_val_actual = 32'b0;
+                    t.next_pc       = 32'b0;
+                    t.next_pc_valid = 1'b0;
+                    t.mem_addr      = 32'b0;
+                    t.mem_wdata     = 32'b0;
+                    t.mem_valid     = 1'b0;
+                    t.is_last       = 1'b0;
                     t.decode();
                     uvm_analysis_port_mon_obj.write(t);
                     sent_count++;

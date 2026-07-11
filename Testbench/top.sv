@@ -75,6 +75,9 @@ module top;
     assign core_vif.u1reg  = dut.bridge0.core0.U1REG;
     assign core_vif.u2reg  = dut.bridge0.core0.U2REG;
     assign core_vif.rmdata = dut.bridge0.core0.RMDATA;
+    assign core_vif.daddr  = dut.bridge0.core0.DADDR;
+    assign core_vif.datao  = dut.bridge0.core0.DATAO;
+    assign core_vif.dwr    = dut.bridge0.core0.DWR;
 
 
     // 5. Bloque initial de configuración y arranque UVM

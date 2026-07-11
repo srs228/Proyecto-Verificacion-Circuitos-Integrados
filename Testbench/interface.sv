@@ -29,5 +29,10 @@ interface core_if(input logic clk);
     logic [31:0] u2reg;
     logic [31:0] rmdata;
 
+    // Señales mínimas del bus de datos (para verificación de STORE).
+    logic [31:0] daddr;
+    logic [31:0] datao;
+    logic        dwr;
+
 endinterface
 

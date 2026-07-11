@@ -71,6 +71,13 @@ class monitor extends uvm_monitor;
                     t.mem_wdata     = 32'b0;
                     t.mem_valid     = 1'b0;
                     t.is_last       = 1'b0;
+
+                    if (opcode == OPC_STYPE && vif.dwr) begin
+                        t.mem_addr  = vif.daddr;
+                        t.mem_wdata = vif.datao;
+                        t.mem_valid = 1'b1;
+                    end
+
                     t.decode();
 
                     // Para BRANCH se difiere la publicacion hasta observar el siguiente retiro.
