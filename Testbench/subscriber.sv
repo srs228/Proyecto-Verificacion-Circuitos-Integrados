@@ -171,11 +171,12 @@ class core_subscriber extends uvm_subscriber #(instr_txn);
         option.name = "cg_load";
 
         cp_op : coverpoint s_f3 {
-            bins LB  = {3'b000};
-            bins LH  = {3'b001};
             bins LW  = {3'b010};
-            bins LBU = {3'b100};
-            bins LHU = {3'b101};
+            // Alcance de rubrica: solo LW. Los demas loads se ignoran.
+            ignore_bins LB  = {3'b000};
+            ignore_bins LH  = {3'b001};
+            ignore_bins LBU = {3'b100};
+            ignore_bins LHU = {3'b101};
         }
         cp_rd  : coverpoint s_rd  { bins x[] = {[0:15]}; }
         cp_rs1 : coverpoint s_rs1 { bins x[] = {[0:15]}; }   // registro base
@@ -206,9 +207,10 @@ class core_subscriber extends uvm_subscriber #(instr_txn);
         option.name = "cg_store";
 
         cp_op : coverpoint s_f3 {
-            bins SB = {3'b000};
-            bins SH = {3'b001};
             bins SW = {3'b010};
+            // Alcance de rubrica: solo SW. Los demas stores se ignoran.
+            ignore_bins SB = {3'b000};
+            ignore_bins SH = {3'b001};
         }
         cp_rs1 : coverpoint s_rs1 { bins x[] = {[0:15]}; }   // registro base
         cp_rs2 : coverpoint s_rs2 { bins x[] = {[0:15]}; }   // registro dato
