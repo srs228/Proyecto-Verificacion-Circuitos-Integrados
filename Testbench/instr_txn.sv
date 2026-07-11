@@ -13,7 +13,11 @@ localparam bit [6:0] OPC_JALR  = 7'b1100111;  // I : JALR
 typedef enum int unsigned {
     INSTR_R = 0,
     INSTR_I = 1,
-    INSTR_U = 2
+    INSTR_U = 2,
+    INSTR_L = 3,
+    INSTR_S = 4,
+    INSTR_B = 5,
+    INSTR_J = 6
 } instr_type_e;
 
 //Paso 1: Crear la clase que extiende de la clase base uvm_sequence_item
@@ -26,6 +30,7 @@ class instr_txn extends uvm_sequence_item;
         `uvm_field_int(rs1_val,       UVM_ALL_ON | UVM_HEX)
         `uvm_field_int(rs2_val,       UVM_ALL_ON | UVM_HEX)
         `uvm_field_int(rd_val_actual, UVM_ALL_ON | UVM_HEX)
+        `uvm_field_int(is_last,       UVM_ALL_ON)
     `uvm_object_utils_end
 
     //Paso 3: Declarar los campos de la transacción
@@ -36,6 +41,7 @@ class instr_txn extends uvm_sequence_item;
     bit [31:0] rs1_val;
     bit [31:0] rs2_val;
     bit [31:0] rd_val_actual;
+    bit        is_last;
 
     // Tipo de instrucción (para generación y covergroup)
     rand instr_type_e instr_type;
@@ -150,6 +156,10 @@ class instr_txn extends uvm_sequence_item;
             INSTR_R: return "R-type";
             INSTR_I: return "I-type";
             INSTR_U: return "U-type";
+            INSTR_L: return "L-type";
+            INSTR_S: return "S-type";
+            INSTR_B: return "B-type";
+            INSTR_J: return "J-type";
             default:  return "UNKNOWN";
         endcase
     endfunction

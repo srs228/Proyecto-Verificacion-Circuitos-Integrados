@@ -5,7 +5,7 @@ class base_sequence extends uvm_sequence #(instr_txn);
     `uvm_object_utils(base_sequence)
 
     //Paso 3: Declarar variables de configuracion
-    int unsigned NUM_INSTR = 220;
+    int unsigned NUM_INSTR = 120;
 
     //Paso 4: Constructor
     function new(string name = "base_sequence");
@@ -26,9 +26,10 @@ class base_sequence extends uvm_sequence #(instr_txn);
         input bit [11:0] imm12_i,
         input bit [4:0]  rs1_i,
         input bit [2:0]  f3,
-        input bit [4:0]  rd_i
+        input bit [4:0]  rd_i,
+        input bit [6:0]  opc
     );
-        return {imm12_i, rs1_i, f3, rd_i, 7'b0010011};
+        return {imm12_i, rs1_i, f3, rd_i, opc};
     endfunction
 
     function automatic bit [31:0] mk_u(
@@ -39,19 +40,47 @@ class base_sequence extends uvm_sequence #(instr_txn);
         return {imm20_i, rd_i, opc};
     endfunction
 
+    function automatic bit [31:0] mk_s(
+        input bit [11:0] imm12_i,
+        input bit [4:0]  rs2_i,
+        input bit [4:0]  rs1_i,
+        input bit [2:0]  f3
+    );
+        return {imm12_i[11:5], rs2_i, rs1_i, f3, imm12_i[4:0], 7'b0100011};
+    endfunction
+
+    function automatic bit [31:0] mk_b(
+        input bit [12:0] imm13_i,
+        input bit [4:0]  rs2_i,
+        input bit [4:0]  rs1_i,
+        input bit [2:0]  f3
+    );
+        return {imm13_i[12], imm13_i[10:5], rs2_i, rs1_i, f3,
+                imm13_i[4:1], imm13_i[11], 7'b1100011};
+    endfunction
+
+    function automatic bit [31:0] mk_j(
+        input bit [20:0] imm21_i,
+        input bit [4:0]  rd_i
+    );
+        return {imm21_i[20], imm21_i[10:1], imm21_i[11], imm21_i[19:12], rd_i, 7'b1101111};
+    endfunction
+
     task automatic send_directed(
         input bit [31:0] raw_instr,
         input string tag,
-        input instr_type_e t
+        input instr_type_e t,
+        input bit last_item = 1'b0
     );
         instr_txn req;
         req = instr_txn::type_id::create("instr_dirigida");
         start_item(req);
         req.instr = raw_instr;
         req.instr_type = t;
+        req.is_last = last_item;
         req.decode();
         finish_item(req);
-        `uvm_info("SEQ", $sformatf("[Dirigida] %s instr=0x%08h", tag, req.instr), UVM_MEDIUM)
+        `uvm_info("SEQ", $sformatf("[Dirigida] %s instr=0x%08h last=%0b", tag, req.instr, req.is_last), UVM_MEDIUM)
     endtask
 
     //Paso 5: En body() generamos y enviamos las transacciones al driver
@@ -60,16 +89,22 @@ class base_sequence extends uvm_sequence #(instr_txn);
         int unsigned r;
         logic [11:0] seed_imm;
         int unsigned i;
+        bit [12:0] bimm;
 
         `uvm_info("SEQ", "=== Iniciando base_sequence ===", UVM_NONE)
+
+        if ($value$plusargs("NUM_INSTR=%d", NUM_INSTR)) begin
+            `uvm_info("SEQ", $sformatf("NUM_INSTR configurado por plusarg: %0d", NUM_INSTR), UVM_LOW)
+        end
 
         // Bootstrap para inicializar x1..x15 con valores conocidos.
         for (r = 1; r <= 15; r++) begin
             seed_imm = (r * 17 + 3) & 12'h7FF;
             req = instr_txn::type_id::create("bootstrap");
             start_item(req);
-            req.instr      = {seed_imm, 5'd0, 3'b000, r[4:0], 7'b0010011};
+            req.instr      = mk_i(seed_imm, 5'd0, 3'b000, r[4:0], 7'b0010011);
             req.instr_type = INSTR_I;
+            req.is_last    = 1'b0;
             req.rd         = r[4:0];
             req.rs1        = 5'd0;
             req.imm12      = seed_imm;
@@ -94,22 +129,35 @@ class base_sequence extends uvm_sequence #(instr_txn);
             send_directed(mk_r(7'b0000000, (i % 15) + 1, i[4:0], 3'b110, i[4:0]), "OR", INSTR_R);
             send_directed(mk_r(7'b0000000, (i % 15) + 1, i[4:0], 3'b111, i[4:0]), "AND", INSTR_R);
 
-            send_directed(mk_i({1'b0, i[4:0], 6'h03}, i[4:0], 3'b000, i[4:0]), "ADDI", INSTR_I);
-            send_directed(mk_i({1'b1, i[4:0], 6'h04}, i[4:0], 3'b010, i[4:0]), "SLTI", INSTR_I);
-            send_directed(mk_i({1'b1, i[4:0], 6'h05}, i[4:0], 3'b011, i[4:0]), "SLTIU", INSTR_I);
-            send_directed(mk_i({1'b1, i[4:0], 6'h06}, i[4:0], 3'b100, i[4:0]), "XORI", INSTR_I);
-            send_directed(mk_i({1'b1, i[4:0], 6'h07}, i[4:0], 3'b110, i[4:0]), "ORI", INSTR_I);
-            send_directed(mk_i({1'b1, i[4:0], 6'h08}, i[4:0], 3'b111, i[4:0]), "ANDI", INSTR_I);
-            send_directed(mk_i({7'b0000000, i[4:0]}, i[4:0], 3'b001, i[4:0]), "SLLI", INSTR_I);
-            send_directed(mk_i({7'b0000000, i[4:0]}, i[4:0], 3'b101, i[4:0]), "SRLI", INSTR_I);
-            send_directed(mk_i({7'b0100000, i[4:0]}, i[4:0], 3'b101, i[4:0]), "SRAI", INSTR_I);
+            send_directed(mk_i({1'b0, i[4:0], 6'h03}, i[4:0], 3'b000, i[4:0], 7'b0010011), "ADDI", INSTR_I);
+            send_directed(mk_i({1'b1, i[4:0], 6'h04}, i[4:0], 3'b010, i[4:0], 7'b0010011), "SLTI", INSTR_I);
+            send_directed(mk_i({1'b1, i[4:0], 6'h05}, i[4:0], 3'b011, i[4:0], 7'b0010011), "SLTIU", INSTR_I);
+            send_directed(mk_i({1'b1, i[4:0], 6'h06}, i[4:0], 3'b100, i[4:0], 7'b0010011), "XORI", INSTR_I);
+            send_directed(mk_i({1'b1, i[4:0], 6'h07}, i[4:0], 3'b110, i[4:0], 7'b0010011), "ORI", INSTR_I);
+            send_directed(mk_i({1'b1, i[4:0], 6'h08}, i[4:0], 3'b111, i[4:0], 7'b0010011), "ANDI", INSTR_I);
+            send_directed(mk_i({7'b0000000, i[4:0]}, i[4:0], 3'b001, i[4:0], 7'b0010011), "SLLI", INSTR_I);
+            send_directed(mk_i({7'b0000000, i[4:0]}, i[4:0], 3'b101, i[4:0], 7'b0010011), "SRLI", INSTR_I);
+            send_directed(mk_i({7'b0100000, i[4:0]}, i[4:0], 3'b101, i[4:0], 7'b0010011), "SRAI", INSTR_I);
 
             send_directed(mk_u({8'h0, i[11:0]}, i[4:0], 7'b0110111), "LUI", INSTR_U);
             send_directed(mk_u({8'h1, i[11:0]}, i[4:0], 7'b0010111), "AUIPC", INSTR_U);
+
+            send_directed(mk_i({8'h00, i[3:0], 2'b00}, i[4:0], 3'b010, ((i+1)%15)+1, 7'b0000011), "LW", INSTR_L);
+            send_directed(mk_s({8'h00, i[3:0], 2'b00}, ((i+2)%15)+1, i[4:0], 3'b010), "SW", INSTR_S);
+
+            bimm = 13'd8;
+            send_directed(mk_b(bimm, 5'd3, 5'd2, 3'b000), "BEQ_not_taken",  INSTR_B);
+            send_directed(mk_b(bimm, 5'd2, 5'd2, 3'b001), "BNE_not_taken",  INSTR_B);
+            send_directed(mk_b(bimm, 5'd2, 5'd3, 3'b100), "BLT_not_taken",  INSTR_B);
+            send_directed(mk_b(bimm, 5'd3, 5'd2, 3'b101), "BGE_not_taken",  INSTR_B);
+            send_directed(mk_b(bimm, 5'd2, 5'd3, 3'b110), "BLTU_not_taken", INSTR_B);
+            send_directed(mk_b(bimm, 5'd3, 5'd2, 3'b111), "BGEU_not_taken", INSTR_B);
+
+            send_directed(mk_j(21'd4, i[4:0]), "JAL_pc_plus_4", INSTR_J);
         end
 
         // Caso dirigido de escritura a x0 (debe descartarse en scoreboard).
-        send_directed(mk_i(12'h000, 5'd0, 3'b000, 5'd0), "ADDI x0,x0,0", INSTR_I);
+        send_directed(mk_i(12'h000, 5'd0, 3'b000, 5'd0, 7'b0010011), "ADDI x0,x0,0", INSTR_I);
 
         // Cola aleatoria para completar combinaciones de cobertura.
         repeat (NUM_INSTR) begin
@@ -117,6 +165,7 @@ class base_sequence extends uvm_sequence #(instr_txn);
             start_item(req);
             if (!req.randomize())
                 `uvm_error("SEQ", "Fallo en randomize() de instr_txn")
+            req.is_last = 1'b0;
             req.decode();
             finish_item(req);
             `uvm_info("SEQ",
@@ -129,6 +178,9 @@ class base_sequence extends uvm_sequence #(instr_txn);
                 ),
                 UVM_NONE)
         end
+
+            // Cierre del programa: JALR x0, x0, 0 (loop seguro) y marca fin para el driver.
+            send_directed(mk_i(12'h000, 5'd0, 3'b000, 5'd0, 7'b1100111), "JALR x0,x0,0", INSTR_J, 1'b1);
 
         `uvm_info("SEQ", "=== base_sequence completada ===", UVM_NONE)
     endtask
