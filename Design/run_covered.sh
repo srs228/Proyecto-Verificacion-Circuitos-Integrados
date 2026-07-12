@@ -29,6 +29,11 @@ vvp dark_sim.out
 #    -t darksocv          -> modulo a instrumentar (el DUT, no el testbench)
 #    -i dark_top_tb.dut   -> ruta jerarquica de ese modulo dentro del VCD
 #    -I .                 -> carpeta donde encontrar config.vh
+#    -e darkpll -e darkram-> se enfoca la cobertura en darkriscv/darksocv/darkuart
+#                            excluyendo del CONTEO los modulos que no interesan.
+#                            (darkbridge/darkio NO se excluyen: son los padres de
+#                            darkriscv/darkuart; excluirlos perderia esos hijos.)
+#                            Los .v igual se pasan: el diseno debe poder elaborar.
 # ---------------------------------------------------------------------------
 echo ">> [2/3] Puntuando cobertura con Covered ..."
 covered score \
@@ -36,6 +41,7 @@ covered score \
     -I . \
     -v darksocv.v -v darkpll.v -v darkbridge.v -v darkriscv.v \
     -v darkram.v -v darkio.v -v darkuart.v \
+    -e darkpll -e darkram \
     -vcd dump.vcd \
     -o darksocv.cdd
 
