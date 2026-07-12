@@ -6,4 +6,4 @@ Desarrollado por los estudiantes:
 - Sebastian Rojas
 
 Avance 3 en EDA Playground
-https://edaplayground.com/x/Ta5m
+https://www.edaplayground.com/x/H2JN
