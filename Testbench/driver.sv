@@ -7,7 +7,8 @@ class driver extends uvm_driver #(instr_txn);
     //Paso 3: Declarar la virtual interface y atributos
     virtual core_if vif;
     string       mem_path  = "darksocv.mem";
-    int unsigned num_instr = 80;
+    logic [31:0] prog[$];
+    bit          mem_written;
 
     //Paso 4: Constructor
     function new(string name = "driver", uvm_component parent = null);
@@ -21,22 +22,13 @@ class driver extends uvm_driver #(instr_txn);
             `uvm_fatal("DRV", "No se encontro la virtual interface en config_db (key='core_vif_obj')")
     endfunction
 
-    // Fase de pre-simulacion: generar y escribir darksocv.mem
-    // Se usa start_of_simulation_phase (funcion, corre antes del primer ciclo de reloj)
-    // porque top.sv necesita mem_gen_done=1 antes de quitar el reset.
+    // Inicializacion previa a run_phase.
     virtual function void start_of_simulation_phase(uvm_phase phase);
-        core_stimulus stim;
-        logic [31:0] prog[$];
         super.start_of_simulation_phase(phase);
-        stim = new();
-        stim.build_program(prog, num_instr);
-        dump_mem(prog);
-        vif.mem_gen_done  = 1'b1;
-        vif.program_words = prog.size();
-        `uvm_info("DRV",
-            $sformatf("[DRV] Programa generado: %0d instrucciones en %s | mem_gen_done=1",
-                      prog.size(), mem_path),
-            UVM_NONE)
+        prog.delete();
+        mem_written       = 1'b0;
+        vif.mem_gen_done  = 1'b0;
+        vif.program_words = 0;
     endfunction
 
     //Paso 6: En run_phase recibimos cada item del secuenciador y lo aplicamos
@@ -44,11 +36,22 @@ class driver extends uvm_driver #(instr_txn);
         forever begin
             seq_item_port.get_next_item(req);
             req.decode();
+            prog.push_back(req.instr);
+
+            if (req.is_last && !mem_written) begin
+                dump_mem(prog);
+                vif.program_words = prog.size();
+                vif.mem_gen_done  = 1'b1;
+                mem_written       = 1'b1;
+                `uvm_info("DRV",
+                    $sformatf("[DRV] Programa escrito desde sequence: %0d instrucciones en %s | mem_gen_done=1",
+                              prog.size(), mem_path),
+                    UVM_NONE)
+            end
+
             `uvm_info("DRV",
-                $sformatf("[DRV] Item recibido del secuenciador: %s", req.convert2string()),
+                $sformatf("[DRV] Item recibido #%0d: %s", prog.size(), req.convert2string()),
                 UVM_MEDIUM)
-            // En DarkSOCV el programa se carga desde RAM (.mem generado arriba);
-            // el item UVM representa la vista logica de la instruccion enviada.
             seq_item_port.item_done();
         end
     endtask
